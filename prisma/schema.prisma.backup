@@ -1,0 +1,526 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User and Authentication Models
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String?   // Hashed password for email/password auth
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Role-based access
+  role          UserRole  @default(STUDENT)
+  
+  // Profile information
+  phone         String?
+  address       String?
+  dateOfBirth   DateTime?
+  studentId     String?   @unique // For students
+  alumniId      String?   @unique // For alumni
+  
+  // Relationships
+  accounts      Account[]
+  sessions      Session[]
+  studentProfile StudentProfile?
+  alumniProfile AlumniProfile?
+  staffProfile  StaffProfile?
+  adminProfile  AdminProfile?
+  
+  // Application related
+  reviews       ApplicationReview[]
+  notes         ApplicationNote[]
+  
+  // Alumni specific
+  payments      AlumniPayment[]
+  
+  // Guidelines and Policies
+  publishedGuidelines Guideline[]
+  publishedPolicies   Policy[]
+  
+  // Program Funds
+  createdProgramFunds ProgramFund[]
+  approvedExpenses    ProgramExpense[]
+  
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Role-based profiles
+model StudentProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  studentId         String   @unique
+  enrollmentYear    Int
+  currentSemester   Int
+  department        String
+  cgpa              Float?
+  meritListNumber   String?
+  familyIncome      Float?
+  utilityBills      String[] // GCS URLs
+  goals             String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications      Application[]
+
+  @@map("student_profiles")
+}
+
+model AlumniProfile {
+  id                String           @id @default(cuid())
+  userId            String           @unique
+  alumniId          String           @unique
+  graduationYear    Int
+  department        String
+  category          AlumniCategory   @default(BASIC)
+  rank              AlumniRank       @default(BRONZE)
+  digitalSignature  String           @unique
+  isVerified        Boolean          @default(false)
+  totalContributed  Float            @default(0)
+  totalPledged      Float            @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pledges           AlumniPledge[]
+  payments          AlumniPayment[]
+
+  @@map("alumni_profiles")
+}
+
+model StaffProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  staffId           String   @unique
+  department        String
+  designation       String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("staff_profiles")
+}
+
+model AdminProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  adminId           String   @unique
+  permissions       String[] // Array of permission strings
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+// Intake and Semester Management
+model Intake {
+  id                String   @id @default(cuid())
+  name              String   @unique // e.g., "Fall 2024", "Spring 2025"
+  year              Int
+  semester          Semester
+  startDate         DateTime
+  endDate           DateTime
+  isActive          Boolean  @default(true)
+  maxApplications   Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  applications      Application[]
+
+  @@map("intakes")
+}
+
+// Application Management
+model Application {
+  id                String              @id @default(cuid())
+  studentId         String
+  intakeId          String
+  status            ApplicationStatus   @default(DRAFT)
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  rejectionReason   String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Basic information
+  personalInfo      Json? // Structured personal information
+  academicInfo      Json? // Academic details, CGPA, etc.
+  financialInfo     Json? // Family income, utility bills
+  goals             String?
+  
+  // File uploads
+  documents         String[] // GCS URLs for uploaded documents
+  
+  // Relationships
+  student           StudentProfile      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  intake            Intake              @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  reviews           ApplicationReview[]
+  notes             ApplicationNote[]
+  scholarship       Scholarship?
+
+  @@unique([studentId, intakeId])
+  @@map("applications")
+}
+
+model ApplicationReview {
+  id                String   @id @default(cuid())
+  applicationId     String
+  reviewerId        String
+  status            ReviewStatus
+  vote              ReviewVote
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer          User        @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, reviewerId])
+  @@map("application_reviews")
+}
+
+model ApplicationNote {
+  id                String   @id @default(cuid())
+  applicationId     String
+  authorId          String
+  content           String
+  isInternal        Boolean  @default(false) // Only visible to staff/admin
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  author            User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("application_notes")
+}
+
+// Enhanced Scholarship Management
+model Scholarship {
+  id                String              @id @default(cuid())
+  applicationId     String              @unique
+  type              ScholarshipType
+  amount            Float
+  isRecurring       Boolean             @default(false)
+  recurringSemesters Int[]              // Array of semester numbers for recurring scholarships
+  status            ScholarshipStatus   @default(APPROVED)
+  approvedAt        DateTime?
+  disbursedAt       DateTime?
+  certificateUrl    String?             // Local file path for generated certificate
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+  
+  // Enhanced scholarship details
+  reason            String?   // Why this scholarship was awarded
+  conditions        String?   // Any conditions attached
+  approvedBy        String?   // Admin who approved
+  notes             String?   // Additional notes
+
+  application       Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  intake            Intake              @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  intakeId          String
+  disbursements    ScholarshipDisbursement[]
+  fundProofs       FundProof[]
+
+  @@map("scholarships")
+}
+
+model ScholarshipDisbursement {
+  id                String   @id @default(cuid())
+  scholarshipId     String
+  amount            Float
+  semester          Int
+  disbursedAt       DateTime @default(now())
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  scholarship       Scholarship @relation(fields: [scholarshipId], references: [id], onDelete: Cascade)
+
+  @@map("scholarship_disbursements")
+}
+
+// Enhanced Alumni Pledges and Payments
+model AlumniPledge {
+  id                String          @id @default(cuid())
+  alumniId          String
+  amount            Float
+  currency          String          @default("USD")
+  status            PledgeStatus    @default(PENDING)
+  pledgeDate        DateTime        @default(now())
+  fulfillmentDate   DateTime?
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  alumni            AlumniProfile   @relation(fields: [alumniId], references: [id], onDelete: Cascade)
+  payments          AlumniPayment[]
+
+  @@map("alumni_pledges")
+}
+
+model AlumniPayment {
+  id                String          @id @default(cuid())
+  alumniId          String
+  pledgeId          String?
+  amount            Float
+  currency          String          @default("USD")
+  paymentMethod     String          // Stripe, bank transfer, etc.
+  transactionId     String?
+  status            PaymentStatus   @default(PENDING)
+  receiptPath       String?         // Local file path for receipt
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  alumni            AlumniProfile   @relation(fields: [alumniId], references: [id], onDelete: Cascade)
+  pledge            AlumniPledge?   @relation(fields: [pledgeId], references: [id])
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+
+  @@map("alumni_payments")
+}
+
+// Enhanced Guidelines and Policies
+model Guideline {
+  id                String   @id @default(cuid())
+  title             String
+  content           String   @db.Text
+  version           String   @default("1.0")
+  isActive          Boolean  @default(true)
+  publishedBy       String
+  publishedAt       DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [publishedBy], references: [id], onDelete: Cascade)
+
+  @@map("guidelines")
+}
+
+model Policy {
+  id                String   @id @default(cuid())
+  title             String
+  content           String   @db.Text
+  version           String   @default("1.0")
+  isActive          Boolean  @default(true)
+  publishedBy       String
+  publishedAt       DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [publishedBy], references: [id], onDelete: Cascade)
+
+  @@map("policies")
+}
+
+// Enhanced Program Funds and Events
+model ProgramFund {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  amount            Float
+  allocatedAmount   Float    @default(0)
+  remainingAmount   Float
+  category          String   // Student welfare, learning programs, events
+  isActive          Boolean  @default(true)
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User             @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  expenses          ProgramExpense[]
+  events            Event[]
+
+  @@map("program_funds")
+}
+
+model ProgramExpense {
+  id                String   @id @default(cuid())
+  programFundId     String
+  amount            Float
+  description       String
+  expenseDate       DateTime
+  approvedBy        String
+  approvedAt        DateTime @default(now())
+  receiptPath       String?  // Local file path for receipt
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  programFund       ProgramFund @relation(fields: [programFundId], references: [id], onDelete: Cascade)
+  user              User        @relation(fields: [approvedBy], references: [id], onDelete: Cascade)
+
+  @@map("program_expenses")
+}
+
+// New model for events requiring funds
+model Event {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  eventDate         DateTime
+  requiredFunds     Float
+  allocatedFunds    Float    @default(0)
+  status            String   @default("PLANNING") // PLANNING, FUNDED, COMPLETED, CANCELLED
+  intakeId          String?  // If event is intake-specific
+  programFundId     String?  // If funded from program funds
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  intake            Intake?        @relation(fields: [intakeId], references: [id])
+  programFund       ProgramFund?   @relation(fields: [programFundId], references: [id])
+
+  @@map("events")
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  STAFF
+  ALUMNI
+  STUDENT
+}
+
+enum Semester {
+  FALL
+  SPRING
+  SUMMER
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum ReviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ReviewVote {
+  APPROVE
+  REJECT
+  NEEDS_MORE_INFO
+}
+
+enum ScholarshipType {
+  FULL_SEMESTER
+  PARTIAL_SEMESTER
+  ONE_TIME
+}
+
+enum ScholarshipStatus {
+  APPROVED
+  DISBURSED
+  CANCELLED
+  EXPIRED
+}
+
+enum AlumniCategory {
+  BASIC
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+enum AlumniRank {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+enum PledgeStatus {
+  PENDING
+  CONFIRMED
+  FULFILLED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  STRIPE
+  CASH
+  CHECK
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ProgramCategory {
+  STUDENT_WELFARE
+  LEARNING_PROGRAMS
+  HACKATHON
+  COURSES
+  SKILLS_DEVELOPMENT
+  OTHER
+}

@@ -1,0 +1,348 @@
+"use client";
+
+import { useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { 
+  Banknote, 
+  DollarSign, 
+  CheckCircle,
+  AlertCircle,
+  Info,
+  Upload
+} from "lucide-react";
+import { useCreateManualPayment } from "@/lib/hooks/use-pledge-payment";
+
+interface ManualPaymentFormProps {
+  alumniId: string;
+  pledgeId?: string;
+  amount?: number;
+  currency?: string;
+  onSuccess?: () => void;
+}
+
+export default function ManualPaymentForm({ 
+  alumniId, 
+  pledgeId, 
+  amount: initialAmount, 
+  currency: initialCurrency = "USD",
+  onSuccess 
+}: ManualPaymentFormProps) {
+  const [formData, setFormData] = useState({
+    amount: initialAmount?.toString() || "",
+    currency: initialCurrency,
+    paymentMethod: "bank_transfer",
+    notes: "",
+    receiptFile: null as File | null,
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const createManualPaymentMutation = useCreateManualPayment();
+
+  const currencies = [
+    { code: "USD", symbol: "$", name: "US Dollar" },
+    { code: "EUR", symbol: "€", name: "Euro" },
+    { code: "GBP", symbol: "£", name: "British Pound" },
+    { code: "CAD", symbol: "C$", name: "Canadian Dollar" },
+    { code: "AUD", symbol: "A$", name: "Australian Dollar" },
+    { code: "JPY", symbol: "¥", name: "Japanese Yen" },
+    { code: "CHF", symbol: "CHF", name: "Swiss Franc" },
+    { code: "SGD", symbol: "S$", name: "Singapore Dollar" },
+  ];
+
+  const paymentMethods = [
+    { value: "bank_transfer", label: "Bank Transfer", description: "Direct bank transfer" },
+    { value: "check", label: "Check", description: "Physical check or money order" },
+    { value: "cash", label: "Cash", description: "Cash payment" },
+    { value: "other", label: "Other", description: "Other payment method" },
+  ];
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.amount) {
+      newErrors.amount = "Amount is required";
+    } else {
+      const amount = parseFloat(formData.amount);
+      if (isNaN(amount) || amount <= 0) {
+        newErrors.amount = "Amount must be a positive number";
+      }
+      if (amount < 1) {
+        newErrors.amount = "Minimum payment amount is 1";
+      }
+      if (amount > 1000000) {
+        newErrors.amount = "Maximum payment amount is 1,000,000";
+      }
+    }
+
+    if (!formData.currency) {
+      newErrors.currency = "Currency is required";
+    }
+
+    if (!formData.paymentMethod) {
+      newErrors.paymentMethod = "Payment method is required";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
+    const formDataToSubmit = new FormData();
+    formDataToSubmit.append("alumniId", alumniId);
+    if (pledgeId) {
+      formDataToSubmit.append("pledgeId", pledgeId);
+    }
+    formDataToSubmit.append("amount", formData.amount);
+    formDataToSubmit.append("currency", formData.currency);
+    formDataToSubmit.append("paymentMethod", formData.paymentMethod);
+    formDataToSubmit.append("notes", formData.notes);
+
+    try {
+      const result = await createManualPaymentMutation.mutateAsync(formDataToSubmit);
+      if (result.success) {
+        // Reset form
+        setFormData({
+          amount: "",
+          currency: "USD",
+          paymentMethod: "bank_transfer",
+          notes: "",
+          receiptFile: null,
+        });
+        setErrors({});
+        onSuccess?.();
+      }
+    } catch (error) {
+      console.error("Failed to create manual payment:", error);
+    }
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: "" }));
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setFormData(prev => ({ ...prev, receiptFile: file }));
+    }
+  };
+
+  if (createManualPaymentMutation.isSuccess) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardContent className="pt-6">
+          <div className="text-center">
+            <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Manual Payment Created!
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Your manual payment has been recorded successfully.
+            </p>
+            <p className="text-sm text-gray-500">
+              Our team will verify the payment and update the status accordingly.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="max-w-2xl mx-auto">
+      <CardHeader>
+        <CardTitle className="flex items-center space-x-2">
+          <Banknote className="w-6 h-6" />
+          <span>Manual Payment</span>
+        </CardTitle>
+        <CardDescription>
+          Record a manual payment (bank transfer, check, cash, etc.)
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Amount and Currency */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="amount">Payment Amount *</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                  {currencies.find(c => c.code === formData.currency)?.symbol || "$"}
+                </span>
+                <Input
+                  id="amount"
+                  type="number"
+                  min="1"
+                  max="1000000"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.amount}
+                  onChange={(e) => handleInputChange("amount", e.target.value)}
+                  className={`pl-8 ${errors.amount ? "border-red-500" : ""}`}
+                  disabled={!!initialAmount}
+                />
+              </div>
+              {errors.amount && (
+                <p className="text-sm text-red-500 mt-1">{errors.amount}</p>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                Minimum: 1, Maximum: 1,000,000
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="currency">Currency *</Label>
+              <Select 
+                value={formData.currency} 
+                onValueChange={(value) => handleInputChange("currency", value)}
+                disabled={!!initialCurrency}
+              >
+                <SelectTrigger className={errors.currency ? "border-red-500" : ""}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {currencies.map((currency) => (
+                    <SelectItem key={currency.code} value={currency.code}>
+                      {currency.code} - {currency.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.currency && (
+                <p className="text-sm text-red-500 mt-1">{errors.currency}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Payment Method */}
+          <div>
+            <Label htmlFor="paymentMethod">Payment Method *</Label>
+            <Select 
+              value={formData.paymentMethod} 
+              onValueChange={(value) => handleInputChange("paymentMethod", value)}
+            >
+              <SelectTrigger className={errors.paymentMethod ? "border-red-500" : ""}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {paymentMethods.map((method) => (
+                  <SelectItem key={method.value} value={method.value}>
+                    <div>
+                      <div className="font-medium">{method.label}</div>
+                      <div className="text-sm text-gray-500">{method.description}</div>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.paymentMethod && (
+              <p className="text-sm text-red-500 mt-1">{errors.paymentMethod}</p>
+            )}
+          </div>
+
+          {/* Notes */}
+          <div>
+            <Label htmlFor="notes">Payment Details</Label>
+            <Textarea
+              id="notes"
+              placeholder="Provide details about the payment, reference numbers, dates, etc..."
+              value={formData.notes}
+              onChange={(e) => handleInputChange("notes", e.target.value)}
+              rows={4}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Include reference numbers, transaction IDs, dates, or any other relevant information
+            </p>
+          </div>
+
+          {/* Receipt Upload */}
+          <div>
+            <Label htmlFor="receipt">Payment Receipt (Optional)</Label>
+            <div className="mt-2">
+              <Input
+                id="receipt"
+                type="file"
+                accept="image/*,.pdf"
+                onChange={handleFileChange}
+                className="cursor-pointer"
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Upload a screenshot, photo, or PDF of your payment receipt for verification
+            </p>
+          </div>
+
+          {/* Information Alert */}
+          <Alert>
+            <Info className="w-4 h-4" />
+            <AlertDescription>
+              <strong>Manual Payment Process:</strong> After submitting this form, our team will 
+              verify your payment and update the status. You can upload a receipt now or add it later 
+              from your payment history.
+            </AlertDescription>
+          </Alert>
+
+          {/* Payment Instructions */}
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h4 className="font-medium text-blue-900 mb-3">Next Steps</h4>
+            <div className="space-y-2 text-sm text-blue-800">
+              <div className="flex items-start space-x-2">
+                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                <span>Complete your payment using the selected method</span>
+              </div>
+              <div className="flex items-start space-x-2">
+                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                <span>Keep your payment receipt or confirmation</span>
+              </div>
+              <div className="flex items-start space-x-2">
+                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                <span>Our team will verify and confirm your payment</span>
+              </div>
+              <div className="flex items-start space-x-2">
+                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                <span>You'll receive email confirmation once verified</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              disabled={createManualPaymentMutation.isPending}
+              className="w-full md:w-auto"
+            >
+              {createManualPaymentMutation.isPending ? "Creating Payment..." : "Record Payment"}
+            </Button>
+          </div>
+
+          {/* Error Display */}
+          {createManualPaymentMutation.error && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertCircle className="w-4 h-4 text-red-600" />
+              <AlertDescription className="text-red-800">
+                Failed to create manual payment. Please try again.
+              </AlertDescription>
+            </Alert>
+          )}
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
